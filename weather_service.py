@@ -9,6 +9,7 @@ import os
 
 WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 
+# Cache weather data for 5 minutes
 CACHE_DURATION = 300
 
 _weather_cache = {}
@@ -42,10 +43,7 @@ def weather_code_to_text(weather_id):
     elif 701 <= weather_id <= 781:
         return "fog"
 
-    elif weather_id == 800:
-        return "clear"
-
-    elif 801 <= weather_id <= 804:
+    elif 800 <= weather_id <= 804:
         return "clear"
 
     else:
@@ -79,31 +77,21 @@ def get_weather(latitude, longitude):
         )
 
     parameters = {
-
         "lat": latitude,
-
         "lon": longitude,
-
         "appid": OPENWEATHER_API_KEY,
-
         "units": "metric"
     }
 
     headers = {
-
-        "User-Agent":
-            "SafeWay-Road-Safety-Project/1.0"
+        "User-Agent": "SafeWay-Road-Safety-Project/1.0"
     }
 
     response = requests.get(
-
         WEATHER_URL,
-
         params=parameters,
-
         headers=headers,
-
-        timeout=10
+        timeout=5
     )
 
     response.raise_for_status()
@@ -119,11 +107,8 @@ def get_weather(latitude, longitude):
     )
 
     return {
-
         "temperature": temperature,
-
         "weather": weather
-
     }
 
 
@@ -136,40 +121,36 @@ def get_route_weather(route_points):
     if not route_points:
         return []
 
-
     number_of_points = len(route_points)
 
-
     # -------------------------------------------------
-    # SOURCE + MIDPOINT + DESTINATION
+    # ONLY 3 WEATHER LOCATIONS
+    #
+    # 1. Source
+    # 2. Midpoint
+    # 3. Destination
     # -------------------------------------------------
 
     sample_indexes = [
-
         0,
-
         number_of_points // 2,
-
         number_of_points - 1
-
     ]
 
-
-    # Remove duplicates for short routes
-
+    # Remove duplicates for very short routes
     sample_indexes = list(
         dict.fromkeys(sample_indexes)
     )
 
-
     selected_points = [
-
         route_points[index]
-
         for index in sample_indexes
-
     ]
 
+    print(
+        f"Weather locations selected: "
+        f"{len(selected_points)}"
+    )
 
     # -------------------------------------------------
     # CHECK CACHE
@@ -180,7 +161,6 @@ def get_route_weather(route_points):
     )
 
     current_time = time.time()
-
 
     if cache_key in _weather_cache:
 
@@ -197,42 +177,38 @@ def get_route_weather(route_points):
 
             return cached["weather"]
 
-
     # -------------------------------------------------
     # GET LIVE WEATHER
     # -------------------------------------------------
 
     weather_results = []
 
+    try:
 
-    for point in selected_points:
+        for point_number, point in enumerate(
+            selected_points,
+            start=1
+        ):
 
-        longitude = point[0]
+            longitude = point[0]
+            latitude = point[1]
 
-        latitude = point[1]
-
-
-        print(
-            f"Checking weather: "
-            f"{latitude} {longitude}"
-        )
-
-
-        try:
+            print(
+                f"Weather request "
+                f"{point_number}/{len(selected_points)}: "
+                f"{latitude}, {longitude}"
+            )
 
             weather_data = get_weather(
                 latitude,
                 longitude
             )
 
-
             weather_results.append({
 
-                "latitude":
-                    latitude,
+                "latitude": latitude,
 
-                "longitude":
-                    longitude,
+                "longitude": longitude,
 
                 "temperature":
                     weather_data["temperature"],
@@ -242,53 +218,44 @@ def get_route_weather(route_points):
 
                 "weather_source":
                     "live"
-
             })
 
+    except Exception as e:
 
-        except Exception as e:
+        print(
+            "OpenWeather unavailable:",
+            repr(e)
+        )
 
-            print(
-                "OpenWeather unavailable:",
-                repr(e)
-            )
+        print(
+            "Using default weather conditions."
+        )
 
-            print(
-                "Using default weather conditions."
-            )
+        # -------------------------------------------------
+        # DEFAULT WEATHER FALLBACK
+        # -------------------------------------------------
 
+        weather_results = []
 
-            # -------------------------------------------------
-            # DEFAULT WEATHER FALLBACK
-            # -------------------------------------------------
+        for fallback_point in selected_points:
 
-            weather_results = []
+            weather_results.append({
 
+                "latitude":
+                    fallback_point[1],
 
-            for fallback_point in selected_points:
+                "longitude":
+                    fallback_point[0],
 
-                weather_results.append({
+                "temperature":
+                    30.0,
 
-                    "latitude":
-                        fallback_point[1],
+                "weather":
+                    "clear",
 
-                    "longitude":
-                        fallback_point[0],
-
-                    "temperature":
-                        30.0,
-
-                    "weather":
-                        "clear",
-
-                    "weather_source":
-                        "default"
-
-                })
-
-
-            break
-
+                "weather_source":
+                    "default"
+            })
 
     # -------------------------------------------------
     # SAVE RESULT TO CACHE
@@ -296,14 +263,10 @@ def get_route_weather(route_points):
 
     _weather_cache[cache_key] = {
 
-        "time":
-            time.time(),
+        "time": time.time(),
 
-        "weather":
-            weather_results
-
+        "weather": weather_results
     }
-
 
     # -------------------------------------------------
     # PRINT SOURCE
@@ -327,7 +290,6 @@ def get_route_weather(route_points):
                 "Weather source: DEFAULT"
             )
 
-
     return weather_results
 
 
@@ -341,62 +303,48 @@ def get_overall_route_weather(route_points):
         route_points
     )
 
-
     if not weather_results:
 
         raise RuntimeError(
             "No weather data available."
         )
 
-
     # -------------------------------------------------
     # AVERAGE TEMPERATURE
     # -------------------------------------------------
 
     temperatures = [
-
         item["temperature"]
-
         for item in weather_results
-
     ]
 
-
     average_temperature = round(
-
         sum(temperatures)
         /
         len(temperatures),
-
         2
-
     )
-
 
     # -------------------------------------------------
     # WEATHER
     # -------------------------------------------------
 
     weather_list = [
-
         item["weather"]
-
         for item in weather_results
-
     ]
-
 
     if "storm" in weather_list:
 
         overall_weather = "storm"
 
-    elif "snow" in weather_list:
-
-        overall_weather = "snow"
-
     elif "rain" in weather_list:
 
         overall_weather = "rain"
+
+    elif "snow" in weather_list:
+
+        overall_weather = "snow"
 
     elif "fog" in weather_list:
 
@@ -406,7 +354,6 @@ def get_overall_route_weather(route_points):
 
         overall_weather = "clear"
 
-
     # -------------------------------------------------
     # WEATHER SOURCE
     # -------------------------------------------------
@@ -414,7 +361,6 @@ def get_overall_route_weather(route_points):
     weather_source = weather_results[0][
         "weather_source"
     ]
-
 
     return {
 
@@ -426,5 +372,4 @@ def get_overall_route_weather(route_points):
 
         "weather_source":
             weather_source
-
     }

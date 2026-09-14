@@ -28,7 +28,11 @@ current_risk_zones = []
 def home():
 
     return jsonify({
-        "message": "Road Safety Backend is Working"
+        "message": (
+            "Route safety analysis completed using "
+            + ("live" if weather_source == "live" else "default")
+            + " weather and ML"
+        )
     })
 
 
