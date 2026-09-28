@@ -1,31 +1,41 @@
-
-from urllib import response
-
 import requests
-import openrouteservice
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Keep your real ORS API key here
+# ==================================================
+# OPENROUTESERVICE API
+# ==================================================
+
 API_KEY = os.getenv("ORS_API_KEY")
 
-client = openrouteservice.Client(key=API_KEY)
+ORS_BASE_URL = "https://api.heigit.org/openrouteservice"
+
+if not API_KEY:
+    raise RuntimeError("ORS_API_KEY is not configured.")
 
 
+# ==================================================
+# GET COORDINATES
+# ==================================================
 def get_coordinates(place):
+    """
+    Convert a place name into [longitude, latitude]
+    using the current openrouteservice/HeiGIT geocoding API.
+    """
 
-    url = "https://nominatim.openstreetmap.org/search"
+    url = "https://api.heigit.org/pelias/v1/search"
 
     parameters = {
-        "q": place + ", India",
-        "format": "json",
-        "limit": 1
+        "text": place,
+        "size": 1,
+        "boundary.country": "IND"
     }
 
     headers = {
-        "User-Agent": "RoadSafetyCollegeProject/1.0"
+        "Authorization": API_KEY,
+        "User-Agent": "SafeWay-Road-Safety-Project/1.0"
     }
 
     response = requests.get(
@@ -35,22 +45,34 @@ def get_coordinates(place):
         timeout=10
     )
 
+    print("Geocoding status:", response.status_code)
+    print("Geocoding response:", response.text[:500])
+
     if response.status_code != 200:
-        print("Nominatim error status:", response.status_code)
-        print("Nominatim response:", response.text[:500])
-        raise RuntimeError("Location search service is temporarily unavailable.")
+        raise RuntimeError(
+            "Location search service is temporarily unavailable."
+        )
 
-    result = response.json()
+    data = response.json()
 
-    if not result:
+    features = data.get("features", [])
+
+    if not features:
         return None
 
-    latitude = float(result[0]["lat"])
-    longitude = float(result[0]["lon"])
+    coordinates = features[0].get("geometry", {}).get("coordinates")
 
-    # ORS needs longitude first, then latitude
+    if not coordinates:
+        return None
+
+    longitude = float(coordinates[0])
+    latitude = float(coordinates[1])
+
     return [longitude, latitude]
 
+# ==================================================
+# GET ROUTE
+# ==================================================
 
 def get_route(
     source,
@@ -92,37 +114,101 @@ def get_route(
         }
 
     if destination_coordinates is None:
+
         return {
             "error": "Destination location not found"
         }
 
-    # Get the driving route from ORS
-    route = client.directions(
-        coordinates=[
+
+    # ==================================================
+    # GET DRIVING ROUTE
+    # ==================================================
+
+    url = (
+        f"{ORS_BASE_URL}"
+        "/v2/directions/driving-car/geojson"
+    )
+
+    route_data = {
+        "coordinates": [
             source_coordinates,
             destination_coordinates
         ],
-        profile="driving-car",
-        format="geojson",
-        extra_info=[
+        "extra_info": [
             "surface",
             "waytype",
             "waycategory"
         ]
+    }
+
+    headers = {
+        "Authorization": API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/geo+json"
+    }
+
+    response = requests.post(
+        url,
+        json=route_data,
+        headers=headers,
+        timeout=30
     )
 
     print(
-        "Number of routes found:",
-        len(route["features"])
+        "Directions status:",
+        response.status_code
     )
 
-    route_info = route["features"][0]
+    if response.status_code != 200:
 
-    properties = route_info["properties"]
+        print(
+            "Directions response:",
+            response.text[:1000]
+        )
+
+        raise RuntimeError(
+            "Route service is temporarily unavailable."
+        )
+
+    route = response.json()
+
+
+    # ==================================================
+    # CHECK ROUTE RESULT
+    # ==================================================
+
+    features = route.get(
+        "features",
+        []
+    )
+
+    if not features:
+
+        raise RuntimeError(
+            "No route was found between the selected locations."
+        )
+
+    print(
+        "Number of routes found:",
+        len(features)
+    )
+
+    route_info = features[0]
+
+    properties = route_info.get(
+        "properties",
+        {}
+    )
+
     extras = properties.get(
         "extras",
         {}
     )
+
+
+    # ==================================================
+    # ROAD SURFACE INFORMATION
+    # ==================================================
 
     surface_info = extras.get(
         "surface",
@@ -133,7 +219,6 @@ def get_route(
         "summary",
         []
     )
-    # Calculate percentage of known asphalt/paved surface
 
     asphalt_percentage = 0
     paved_percentage = 0
@@ -141,24 +226,38 @@ def get_route(
 
     for surface in surface_summary:
 
-        value = surface.get("value")
-        amount = surface.get("amount", 0)
+        value = surface.get(
+            "value"
+        )
+
+        amount = surface.get(
+            "amount",
+            0
+        )
 
         if value == 3:
+
             asphalt_percentage += amount
 
         elif value == 1:
+
             paved_percentage += amount
 
         elif value == 4:
+
             concrete_percentage += amount
+
+
     good_surface_percentage = (
         asphalt_percentage
         + paved_percentage
         + concrete_percentage
     )
 
-    print("\n========== ROAD SURFACE ==========")
+
+    print(
+        "\n========== ROAD SURFACE =========="
+    )
 
     print(
         "Asphalt:",
@@ -172,7 +271,7 @@ def get_route(
         "%"
     )
 
-    print(  
+    print(
         "Concrete:",
         round(concrete_percentage, 2),
         "%"
@@ -184,40 +283,71 @@ def get_route(
         "%"
     )
 
-    print("==================================")
+    print(
+        "=================================="
+    )
 
-    # Get route points
-    route_points = route_info["geometry"]["coordinates"]
+
+    # ==================================================
+    # GET ROUTE POINTS
+    # ==================================================
+
+    geometry = route_info.get(
+        "geometry",
+        {}
+    )
+
+    route_points = geometry.get(
+        "coordinates",
+        []
+    )
+
 
     # ==================================================
     # EXTRACT ROAD INFORMATION
     # ==================================================
 
     major_roads = []
+
     state_roads = []
+
     other_roads = []
 
     roundabouts = 0
+
     service_roads = 0
+
     flyovers_underpasses = 0
 
-    segments = properties.get("segments", [])
+
+    segments = properties.get(
+        "segments",
+        []
+    )
+
 
     for segment in segments:
 
-        steps = segment.get("steps", [])
+        steps = segment.get(
+            "steps",
+            []
+        )
 
         for step in steps:
 
-            road_name = step.get("name", "")
+            road_name = step.get(
+                "name",
+                ""
+            )
 
             instruction = step.get(
                 "instruction",
                 ""
             )
 
+
             # ------------------------------------------
-            # Road names
+            # ROAD NAMES
             # ------------------------------------------
 
             if road_name and road_name != "-":
@@ -228,6 +358,7 @@ def get_route(
                 ):
 
                     if road_name not in major_roads:
+
                         major_roads.append(
                             road_name
                         )
@@ -238,6 +369,7 @@ def get_route(
                 ):
 
                     if road_name not in state_roads:
+
                         state_roads.append(
                             road_name
                         )
@@ -245,32 +377,44 @@ def get_route(
                 else:
 
                     if road_name not in other_roads:
+
                         other_roads.append(
                             road_name
                         )
 
+
             # ------------------------------------------
-            # Roundabout
+            # ROUNDABOUT
             # ------------------------------------------
 
-            if "roundabout" in instruction.lower():
+            if (
+                "roundabout"
+                in instruction.lower()
+            ):
 
                 roundabouts += 1
 
+
             # ------------------------------------------
-            # Service road
+            # SERVICE ROAD
             # ------------------------------------------
 
-            if "service road" in road_name.lower():
+            if (
+                "service road"
+                in road_name.lower()
+            ):
 
                 service_roads += 1
 
+
             # ------------------------------------------
-            # Flyover / Underpass
+            # FLYOVER / UNDERPASS
             # ------------------------------------------
 
             road_text = (
-                road_name + " " + instruction
+                road_name
+                + " "
+                + instruction
             ).lower()
 
             if (
@@ -281,19 +425,32 @@ def get_route(
 
                 flyovers_underpasses += 1
 
+
     # ==================================================
     # ROUTE DISTANCE AND DURATION
     # ==================================================
 
+    summary = properties.get(
+        "summary",
+        {}
+    )
+
     distance_km = (
-        properties["summary"]["distance"]
+        summary.get(
+            "distance",
+            0
+        )
         / 1000
     )
 
     duration_minutes = (
-        properties["summary"]["duration"]
+        summary.get(
+            "duration",
+            0
+        )
         / 60
     )
+
 
     # ==================================================
     # PRINT ROAD INFORMATION
@@ -334,8 +491,21 @@ def get_route(
     )
 
     print(
+        "Distance:",
+        round(distance_km, 2),
+        "km"
+    )
+
+    print(
+        "Duration:",
+        round(duration_minutes, 2),
+        "minutes"
+    )
+
+    print(
         "======================================\n"
     )
+
 
     # ==================================================
     # RETURN RESULT
@@ -343,9 +513,11 @@ def get_route(
 
     return {
 
-        "source": source,
+        "source":
+            source,
 
-        "destination": destination,
+        "destination":
+            destination,
 
         "source_coordinates":
             source_coordinates,
@@ -354,15 +526,19 @@ def get_route(
             destination_coordinates,
 
         "distance_km":
-            round(distance_km, 2),
+            round(
+                distance_km,
+                2
+            ),
 
         "duration_minutes":
-            round(duration_minutes, 2),
+            round(
+                duration_minutes,
+                2
+            ),
 
         "route_points":
-                route_points,
-
-        # NEW ROAD INFORMATION
+            route_points,
 
         "major_roads":
             major_roads,
@@ -379,20 +555,32 @@ def get_route(
         "service_roads":
             service_roads,
 
-    "flyovers_underpasses":
-        flyovers_underpasses,
+        "flyovers_underpasses":
+            flyovers_underpasses,
 
-    "asphalt_percentage":
-        round(asphalt_percentage, 2),
+        "asphalt_percentage":
+            round(
+                asphalt_percentage,
+                2
+            ),
 
-    "paved_percentage":
-        round(paved_percentage, 2),
+        "paved_percentage":
+            round(
+                paved_percentage,
+                2
+            ),
 
-    "concrete_percentage":
-        round(concrete_percentage, 2),
+        "concrete_percentage":
+            round(
+                concrete_percentage,
+                2
+            ),
 
-    "good_surface_percentage":
-        round(good_surface_percentage, 2)
+        "good_surface_percentage":
+            round(
+                good_surface_percentage,
+                2
+            )
     }
 
 
@@ -404,10 +592,12 @@ if __name__ == "__main__":
 
     result = get_route(
         "Vellore",
-        "chennai"
+        "Chennai"
     )
 
-    print("\n========== FINAL RESULT ==========")
+    print(
+        "\n========== FINAL RESULT =========="
+    )
 
     print(
         "Distance:",
