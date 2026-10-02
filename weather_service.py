@@ -1,6 +1,7 @@
 import requests
 import time
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 
 # =====================================================
@@ -9,7 +10,6 @@ import os
 
 WEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
 
-# Cache weather data for 5 minutes
 CACHE_DURATION = 300
 
 _weather_cache = {}
@@ -43,7 +43,10 @@ def weather_code_to_text(weather_id):
     elif 701 <= weather_id <= 781:
         return "fog"
 
-    elif 800 <= weather_id <= 804:
+    elif weather_id == 800:
+        return "clear"
+
+    elif 801 <= weather_id <= 804:
         return "clear"
 
     else:
@@ -77,21 +80,31 @@ def get_weather(latitude, longitude):
         )
 
     parameters = {
+
         "lat": latitude,
+
         "lon": longitude,
+
         "appid": OPENWEATHER_API_KEY,
+
         "units": "metric"
     }
 
     headers = {
-        "User-Agent": "SafeWay-Road-Safety-Project/1.0"
+
+        "User-Agent":
+            "SafeWay-Road-Safety-Project/1.0"
     }
 
     response = requests.get(
+
         WEATHER_URL,
+
         params=parameters,
+
         headers=headers,
-        timeout=5
+
+        timeout=10
     )
 
     response.raise_for_status()
@@ -107,8 +120,11 @@ def get_weather(latitude, longitude):
     )
 
     return {
+
         "temperature": temperature,
+
         "weather": weather
+
     }
 
 
@@ -124,11 +140,7 @@ def get_route_weather(route_points):
     number_of_points = len(route_points)
 
     # -------------------------------------------------
-    # ONLY 3 WEATHER LOCATIONS
-    #
-    # 1. Source
-    # 2. Midpoint
-    # 3. Destination
+    # SOURCE + MIDPOINT + DESTINATION
     # -------------------------------------------------
 
     sample_indexes = [
@@ -137,7 +149,7 @@ def get_route_weather(route_points):
         number_of_points - 1
     ]
 
-    # Remove duplicates for very short routes
+    # Remove duplicates for short routes
     sample_indexes = list(
         dict.fromkeys(sample_indexes)
     )
@@ -146,11 +158,6 @@ def get_route_weather(route_points):
         route_points[index]
         for index in sample_indexes
     ]
-
-    print(
-        f"Weather locations selected: "
-        f"{len(selected_points)}"
-    )
 
     # -------------------------------------------------
     # CHECK CACHE
@@ -178,47 +185,55 @@ def get_route_weather(route_points):
             return cached["weather"]
 
     # -------------------------------------------------
-    # GET LIVE WEATHER
+    # GET LIVE WEATHER IN PARALLEL
     # -------------------------------------------------
+
+    def fetch_weather(point):
+
+        longitude = point[0]
+        latitude = point[1]
+
+        print(
+            f"Checking weather: "
+            f"{latitude} {longitude}"
+        )
+
+        weather_data = get_weather(
+            latitude,
+            longitude
+        )
+
+        return {
+
+            "latitude": latitude,
+
+            "longitude": longitude,
+
+            "temperature":
+                weather_data["temperature"],
+
+            "weather":
+                weather_data["weather"],
+
+            "weather_source":
+                "live"
+        }
 
     weather_results = []
 
     try:
 
-        for point_number, point in enumerate(
-            selected_points,
-            start=1
-        ):
+        # All OpenWeather requests run together.
+        with ThreadPoolExecutor(
+            max_workers=len(selected_points)
+        ) as executor:
 
-            longitude = point[0]
-            latitude = point[1]
-
-            print(
-                f"Weather request "
-                f"{point_number}/{len(selected_points)}: "
-                f"{latitude}, {longitude}"
+            weather_results = list(
+                executor.map(
+                    fetch_weather,
+                    selected_points
+                )
             )
-
-            weather_data = get_weather(
-                latitude,
-                longitude
-            )
-
-            weather_results.append({
-
-                "latitude": latitude,
-
-                "longitude": longitude,
-
-                "temperature":
-                    weather_data["temperature"],
-
-                "weather":
-                    weather_data["weather"],
-
-                "weather_source":
-                    "live"
-            })
 
     except Exception as e:
 
@@ -263,9 +278,11 @@ def get_route_weather(route_points):
 
     _weather_cache[cache_key] = {
 
-        "time": time.time(),
+        "time":
+            time.time(),
 
-        "weather": weather_results
+        "weather":
+            weather_results
     }
 
     # -------------------------------------------------
@@ -314,15 +331,21 @@ def get_overall_route_weather(route_points):
     # -------------------------------------------------
 
     temperatures = [
+
         item["temperature"]
+
         for item in weather_results
+
     ]
 
     average_temperature = round(
+
         sum(temperatures)
         /
         len(temperatures),
+
         2
+
     )
 
     # -------------------------------------------------
@@ -330,21 +353,24 @@ def get_overall_route_weather(route_points):
     # -------------------------------------------------
 
     weather_list = [
+
         item["weather"]
+
         for item in weather_results
+
     ]
 
     if "storm" in weather_list:
 
         overall_weather = "storm"
 
-    elif "rain" in weather_list:
-
-        overall_weather = "rain"
-
     elif "snow" in weather_list:
 
         overall_weather = "snow"
+
+    elif "rain" in weather_list:
+
+        overall_weather = "rain"
 
     elif "fog" in weather_list:
 
@@ -372,4 +398,5 @@ def get_overall_route_weather(route_points):
 
         "weather_source":
             weather_source
+
     }
