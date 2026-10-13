@@ -24,15 +24,11 @@ current_risk_zones = []
 # HOME
 # =====================================================
 
+
 @app.route("/")
 def home():
-
     return jsonify({
-        "message": (
-            "Route safety analysis completed using "
-            + ("live" if weather_source == "live" else "default")
-            + " weather and ML"
-        )
+        "message": "SafeWay server is running"
     })
 
 
