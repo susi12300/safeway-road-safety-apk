@@ -9,7 +9,7 @@ from route_service import get_route
 from weather_service import get_overall_route_weather
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="frontend", static_url_path="")
 CORS(app)
 
 
@@ -27,9 +27,7 @@ current_risk_zones = []
 
 @app.route("/")
 def home():
-    return jsonify({
-        "message": "SafeWay server is running"
-    })
+    return app.send_static_file("index.html")
 
 
 # =====================================================
