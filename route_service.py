@@ -39,10 +39,10 @@ def get_coordinates(place):
     }
 
     response = requests.get(
-        url,
-        params=parameters,
-        headers=headers,
-        timeout=10
+    	url,
+    	params=parameters,
+    	headers=headers,
+    	timeout=(5, 25)
     )
 
     print("Geocoding status:", response.status_code)
