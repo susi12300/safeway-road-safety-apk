@@ -63,7 +63,7 @@ async function findRoute() {
 
 
         const response = await fetch(
-            "http://127.0.0.1:5000/predict",
+            "/predict",
             {
                 method: "POST",
 
@@ -693,7 +693,7 @@ async function loadRiskZones() {
 
         const response =
             await fetch(
-                "http://127.0.0.1:5000/risk-zones"
+                "/risk-zones"
             );
 
 
@@ -1049,7 +1049,7 @@ async function checkRiskZone(
         const response =
             await fetch(
 
-                "http://127.0.0.1:5000/check-risk-zone",
+                "/check-risk-zone",
 
                 {
 
@@ -1450,7 +1450,7 @@ async function searchLocations(
 
         const response =
             await fetch(
-                "http://127.0.0.1:5000/search-location?q=" +
+                "/search-location?q=" +
                 encodeURIComponent(query)
             );
 
