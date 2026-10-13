@@ -19,11 +19,14 @@ if not API_KEY:
 # ==================================================
 # GET COORDINATES
 # ==================================================
+
 def get_coordinates(place):
     """
     Convert a place name into [longitude, latitude]
-    using the current openrouteservice/HeiGIT geocoding API.
+    using the HeiGIT geocoding API.
     """
+    import requests
+    import time
 
     url = "https://api.heigit.org/pelias/v1/search"
 
@@ -38,37 +41,62 @@ def get_coordinates(place):
         "User-Agent": "SafeWay-Road-Safety-Project/1.0"
     }
 
-    response = requests.get(
-    	url,
-    	params=parameters,
-    	headers=headers,
-    	timeout=(5, 25)
-    )
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                url,
+                params=parameters,
+                headers=headers,
+                timeout=(5, 15)
+            )
 
-    print("Geocoding status:", response.status_code)
-    print("Geocoding response:", response.text[:500])
+            print("Geocoding status:", response.status_code)
+            print("Geocoding response:", response.text[:500])
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            "Location search service is temporarily unavailable."
-        )
+            response.raise_for_status()
+            data = response.json()
 
-    data = response.json()
+            features = data.get("features", [])
 
-    features = data.get("features", [])
+            if not features:
+                return None
 
-    if not features:
-        return None
+            coordinates = (
+                features[0].get("geometry", {}).get("coordinates")
+            )
 
-    coordinates = features[0].get("geometry", {}).get("coordinates")
+            if not coordinates or len(coordinates) < 2:
+                return None
 
-    if not coordinates:
-        return None
+            longitude = float(coordinates[0])
+            latitude = float(coordinates[1])
 
-    longitude = float(coordinates[0])
-    latitude = float(coordinates[1])
+            return [longitude, latitude]
 
-    return [longitude, latitude]
+        except (requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError) as e:
+            print(
+                f"Geocoding attempt {attempt + 1} failed: {e}"
+            )
+
+            if attempt == 0:
+                time.sleep(1)
+            else:
+                raise RuntimeError(
+                    "Location search timed out. Please try again."
+                ) from e
+
+        except requests.exceptions.HTTPError as e:
+            print("Geocoding HTTP error:", e)
+            raise RuntimeError(
+                "Location search service is temporarily unavailable."
+            ) from e
+
+        except ValueError as e:
+            print("Invalid geocoding response:", e)
+            raise RuntimeError(
+                "Location search returned an invalid response."
+            ) from e
 
 # ==================================================
 # GET ROUTE
